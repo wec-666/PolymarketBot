@@ -1,35 +1,54 @@
 import json
 
 
+
 def generate_signal(
     probability,
     volume,
     score
 ):
 
+
     if isinstance(probability, str):
+
         probability = json.loads(probability)
+
+
 
     yes = float(probability[0]) * 100
 
 
+
+    # 强交易条件
+
     if (
-        score >= 85
+        score >= 90
         and volume >= 50000000
-        and (yes >= 60 or yes <= 40)
     ):
 
-        signal = "🟢 WATCH"
+
+        # YES概率过高
+
+        if yes >= 70:
+
+            return "BUY_YES"
 
 
-    elif score >= 70:
 
-        signal = "🟡 HOLD"
+        # NO概率优势
 
+        elif yes <= 30:
 
-    else:
-
-        signal = "🔴 AVOID"
+            return "BUY_NO"
 
 
-    return signal
+
+    # 中等机会
+
+    if score >= 70:
+
+        return "HOLD"
+
+
+
+    return "AVOID"

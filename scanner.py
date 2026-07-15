@@ -134,3 +134,4 @@ def show_top_markets(markets):
             "交易信号:",
             signal
         )
+    return market_list[:5]

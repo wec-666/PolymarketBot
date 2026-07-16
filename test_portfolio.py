@@ -1,33 +1,26 @@
 from portfolio import Portfolio
 
 
-
-account = Portfolio(
-    100
-)
+account = Portfolio(100)
 
 
+
+# 测试开仓
 
 account.open_trade(
 
-    "Argentina World Cup",
+    "England World Cup",
 
     5,
 
-    "NO"
+    "BUY_NO",
+
+    0.77
 
 )
 
 
 
-account.close_trade(
-
-    "WIN",
-
-    10
-
-)
-
-
+# 查看账户
 
 account.report()

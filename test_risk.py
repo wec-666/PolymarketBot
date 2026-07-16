@@ -1,44 +1,40 @@
 from risk_manager import (
     calculate_position,
     check_risk,
-    stop_loss
+    check_position
 )
 
-
-
-money = 100
-
-
-position = calculate_position(
-    money
-)
 
 
 print(
-    "单次投入:",
-    position
+    "仓位:",
+    calculate_position(100)
 )
 
-
-
-status = check_risk(
-    2
-)
 
 
 print(
-    "交易状态:",
-    status
+    "风险:",
+    check_risk(2)
 )
 
-
-
-stop = stop_loss(
-    -25
-)
 
 
 print(
-    "是否止损:",
-    stop
+    "盈利:",
+    check_position(25)
+)
+
+
+
+print(
+    "亏损:",
+    check_position(-15)
+)
+
+
+
+print(
+    "正常:",
+    check_position(5)
 )

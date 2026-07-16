@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+
+account.json
+
+.env
+
+.vscode/
+
+.idea/

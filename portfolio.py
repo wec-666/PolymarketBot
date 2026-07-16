@@ -3,6 +3,11 @@ import os
 import time
 from copy import deepcopy
 
+from database import (
+    save_open_trade,
+    close_trade_record
+)
+
 
 class Portfolio:
 
@@ -11,18 +16,36 @@ class Portfolio:
         self.file = "account.json"
 
         if capital <= 0:
-            raise ValueError("初始资金必须大于0")
+            raise ValueError(
+                "初始资金必须大于0"
+            )
 
-        if os.path.exists(self.file):
+        if os.path.exists(
+            self.file
+        ):
+
             self.load()
 
         else:
-            self.initial_capital = round(float(capital), 2)
-            self.balance = round(float(capital), 2)
+
+            self.initial_capital = round(
+                float(capital),
+                2
+            )
+
+            self.balance = round(
+                float(capital),
+                2
+            )
+
             self.positions = []
             self.history = []
 
             self.save()
+            print(">>>> 正在写入SQLite...")
+            save_open_trade(
+         ...
+        )
 
     # ======================
     # 保存账户
@@ -37,19 +60,23 @@ class Portfolio:
             "history": self.history
         }
 
-        # 先写入临时文件，避免程序中断损坏 account.json
-        temp_file = self.file + ".tmp"
+        temp_file = (
+            self.file
+            +
+            ".tmp"
+        )
 
         try:
+
             with open(
                 temp_file,
                 "w",
                 encoding="utf-8"
-            ) as f:
+            ) as file:
 
                 json.dump(
                     data,
-                    f,
+                    file,
                     ensure_ascii=False,
                     indent=4
                 )
@@ -59,15 +86,20 @@ class Portfolio:
                 self.file
             )
 
-        except Exception as e:
+        except Exception as error:
 
             print(
                 "❌账户保存失败:",
-                e
+                error
             )
 
-            if os.path.exists(temp_file):
-                os.remove(temp_file)
+            if os.path.exists(
+                temp_file
+            ):
+
+                os.remove(
+                    temp_file
+                )
 
             raise
 
@@ -78,13 +110,16 @@ class Portfolio:
     def load(self):
 
         try:
+
             with open(
                 self.file,
                 "r",
                 encoding="utf-8"
-            ) as f:
+            ) as file:
 
-                data = json.load(f)
+                data = json.load(
+                    file
+                )
 
             self.initial_capital = float(
                 data.get(
@@ -111,6 +146,7 @@ class Portfolio:
             )
 
             if self.initial_capital <= 0:
+
                 raise ValueError(
                     "账户初始资金数据无效"
                 )
@@ -119,12 +155,14 @@ class Portfolio:
                 self.positions,
                 list
             ):
+
                 self.positions = []
 
             if not isinstance(
                 self.history,
                 list
             ):
+
                 self.history = []
 
         except (
@@ -132,11 +170,11 @@ class Portfolio:
             KeyError,
             TypeError,
             ValueError
-        ) as e:
+        ) as error:
 
             raise RuntimeError(
-                f"account.json 加载失败，请检查账户文件：{e}"
-            ) from e
+                f"account.json加载失败，请检查账户文件：{error}"
+            ) from error
 
     # ======================
     # 获取指定持仓
@@ -150,12 +188,20 @@ class Portfolio:
         for position in self.positions:
 
             if (
-                position.get("market")
-                == market
+                position.get(
+                    "market"
+                )
+                ==
+                market
                 and
-                position.get("status", "OPEN")
-                == "OPEN"
+                position.get(
+                    "status",
+                    "OPEN"
+                )
+                ==
+                "OPEN"
             ):
+
                 return position
 
         return None
@@ -170,7 +216,9 @@ class Portfolio:
     ):
 
         return (
-            self.get_position(market)
+            self.get_position(
+                market
+            )
             is not None
         )
 
@@ -187,8 +235,14 @@ class Portfolio:
     ):
 
         try:
-            amount = float(amount)
-            price = float(price)
+
+            amount = float(
+                amount
+            )
+
+            price = float(
+                price
+            )
 
         except (
             TypeError,
@@ -229,7 +283,11 @@ class Portfolio:
 
             return False
 
-        if price <= 0 or price > 1:
+        if (
+            price <= 0
+            or
+            price > 1
+        ):
 
             print(
                 "❌交易价格必须在0到1之间"
@@ -261,7 +319,9 @@ class Portfolio:
 
             return False
 
-        if self.has_position(market):
+        if self.has_position(
+            market
+        ):
 
             print(
                 "⚠️已有该市场持仓，跳过重复开仓"
@@ -269,7 +329,6 @@ class Portfolio:
 
             return False
 
-        # 单笔投入占初始资金的比例
         risk_ratio = (
             amount
             /
@@ -294,12 +353,13 @@ class Portfolio:
 
             return False
 
-        # 购买对应方向合约的份额
         shares = (
             amount
             /
             price
         )
+
+        open_time = time.time()
 
         trade = {
             "market": market,
@@ -316,7 +376,7 @@ class Portfolio:
                 6
             ),
             "direction": direction,
-            "open_time": time.time(),
+            "open_time": open_time,
             "status": "OPEN"
         }
 
@@ -333,13 +393,67 @@ class Portfolio:
 
         self.save()
 
+        try:
+
+            save_open_trade(
+                market=market,
+                direction=direction,
+                amount=amount,
+                open_price=price,
+                shares=shares,
+                open_time=open_time
+            )
+
+        except Exception as error:
+
+            print()
+            print(
+                "⚠️数据库开仓记录保存失败:"
+            )
+
+            print(
+                error
+            )
+
         print()
-        print("🚀 开仓成功")
-        print("市场:", market)
-        print("方向:", direction)
-        print("价格:", round(price, 4))
-        print("份额:", round(shares, 2))
-        print("投入:", round(amount, 2))
+        print(
+            "🚀 开仓成功"
+        )
+
+        print(
+            "市场:",
+            market
+        )
+
+        print(
+            "方向:",
+            direction
+        )
+
+        print(
+            "价格:",
+            round(
+                price,
+                4
+            )
+        )
+
+        print(
+            "份额:",
+            round(
+                shares,
+                2
+            )
+        )
+
+        print(
+            "投入:",
+            round(
+                amount,
+                2
+            )
+        )
+
         print(
             "剩余余额:",
             round(
@@ -365,9 +479,11 @@ class Portfolio:
         )
 
         if position is None:
+
             return None
 
         try:
+
             current_price = float(
                 current_price
             )
@@ -376,6 +492,7 @@ class Portfolio:
             TypeError,
             ValueError
         ):
+
             return None
 
         if (
@@ -383,10 +500,13 @@ class Portfolio:
             or
             current_price > 1
         ):
+
             return None
 
         current_value = (
-            position["shares"]
+            position[
+                "shares"
+            ]
             *
             current_price
         )
@@ -394,27 +514,50 @@ class Portfolio:
         profit = (
             current_value
             -
-            position["amount"]
+            position[
+                "amount"
+            ]
         )
 
-        if position["amount"] > 0:
+        if position[
+            "amount"
+        ] > 0:
 
             profit_percent = (
                 profit
                 /
-                position["amount"]
+                position[
+                    "amount"
+                ]
                 *
                 100
             )
 
         else:
+
             profit_percent = 0
+
+        if abs(
+            profit
+        ) < 0.005:
+
+            profit = 0.0
+
+        if abs(
+            profit_percent
+        ) < 0.005:
+
+            profit_percent = 0.0
 
         return {
             "market": market,
-            "direction": position["direction"],
+            "direction": position[
+                "direction"
+            ],
             "entry_price": round(
-                position["price"],
+                position[
+                    "price"
+                ],
                 6
             ),
             "current_price": round(
@@ -422,11 +565,15 @@ class Portfolio:
                 6
             ),
             "amount": round(
-                position["amount"],
+                position[
+                    "amount"
+                ],
                 2
             ),
             "shares": round(
-                position["shares"],
+                position[
+                    "shares"
+                ],
                 6
             ),
             "current_value": round(
@@ -459,9 +606,12 @@ class Portfolio:
         )
 
         if result is None:
+
             return None
 
-        return result["profit"]
+        return result[
+            "profit"
+        ]
 
     # ======================
     # 浮动盈亏百分比
@@ -479,6 +629,7 @@ class Portfolio:
         )
 
         if result is None:
+
             return None
 
         return result[
@@ -509,6 +660,7 @@ class Portfolio:
             return False
 
         try:
+
             close_price = float(
                 close_price
             )
@@ -537,7 +689,9 @@ class Portfolio:
             return False
 
         value = (
-            target["shares"]
+            target[
+                "shares"
+            ]
             *
             close_price
         )
@@ -545,21 +699,40 @@ class Portfolio:
         profit = (
             value
             -
-            target["amount"]
+            target[
+                "amount"
+            ]
         )
 
-        if target["amount"] > 0:
+        if target[
+            "amount"
+        ] > 0:
 
             profit_percent = (
                 profit
                 /
-                target["amount"]
+                target[
+                    "amount"
+                ]
                 *
                 100
             )
 
         else:
+
             profit_percent = 0
+
+        if abs(
+            profit
+        ) < 0.005:
+
+            profit = 0.0
+
+        if abs(
+            profit_percent
+        ) < 0.005:
+
+            profit_percent = 0.0
 
         self.balance = round(
             self.balance
@@ -568,7 +741,6 @@ class Portfolio:
             4
         )
 
-        # 使用副本保存历史，避免修改原持仓对象
         closed_trade = deepcopy(
             target
         )
@@ -623,17 +795,53 @@ class Portfolio:
 
         self.save()
 
+        try:
+
+            close_trade_record(
+                market=market,
+                direction=target["direction"],
+                close_price=close_price,
+                close_time=closed_trade["close_time"],
+                profit=closed_trade["profit"],
+                profit_percent=closed_trade["profit_percent"],
+                close_reason=reason
+            )
+
+        except Exception as error:
+
+            print()
+            print(
+                "⚠️数据库平仓记录更新失败:"
+            )
+
+            print(
+                error
+            )
+
         print()
-        print("✅ 平仓完成")
-        print("市场:", market)
+        print(
+            "✅ 平仓完成"
+        )
+
+        print(
+            "市场:",
+            market
+        )
+
         print(
             "方向:",
-            target["direction"]
+            target[
+                "direction"
+            ]
         )
+
         print(
             "开仓价格:",
-            target["price"]
+            target[
+                "price"
+            ]
         )
+
         print(
             "平仓价格:",
             round(
@@ -641,10 +849,12 @@ class Portfolio:
                 4
             )
         )
+
         print(
             "平仓原因:",
             reason
         )
+
         print(
             "收益:",
             round(
@@ -652,6 +862,7 @@ class Portfolio:
                 2
             )
         )
+
         print(
             "收益率:",
             round(
@@ -660,6 +871,7 @@ class Portfolio:
             ),
             "%"
         )
+
         print(
             "当前余额:",
             round(
@@ -739,9 +951,11 @@ class Portfolio:
             )
 
             if profit > 0:
+
                 win_count += 1
 
             elif profit < 0:
+
                 loss_count += 1
 
         if total_trades > 0:
@@ -755,12 +969,21 @@ class Portfolio:
             )
 
         else:
+
             win_rate = 0
 
         print()
-        print("====================")
-        print("🔥 账户报告")
-        print("====================")
+        print(
+            "===================="
+        )
+
+        print(
+            "🔥 账户报告"
+        )
+
+        print(
+            "===================="
+        )
 
         print(
             "初始资金:",
@@ -822,52 +1045,77 @@ class Portfolio:
         if self.positions:
 
             print()
-            print("📌 当前持仓")
-            print("--------------------")
+            print(
+                "📌 当前持仓"
+            )
+
+            print(
+                "--------------------"
+            )
 
             for position in self.positions:
 
                 print(
                     "市场:",
-                    position["market"]
+                    position.get(
+                        "market"
+                    )
                 )
 
                 print(
                     "方向:",
-                    position["direction"]
+                    position.get(
+                        "direction"
+                    )
                 )
 
                 print(
                     "投入:",
                     round(
-                        position["amount"],
+                        position.get(
+                            "amount",
+                            0
+                        ),
                         2
                     )
                 )
 
                 print(
                     "买入价格:",
-                    position["price"]
+                    position.get(
+                        "price"
+                    )
                 )
 
                 print(
                     "份额:",
                     round(
-                        position["shares"],
+                        position.get(
+                            "shares",
+                            0
+                        ),
                         2
                     )
                 )
 
-                print("--------------------")
+                print(
+                    "--------------------"
+                )
 
         if self.history:
 
             print()
-            print("📚 最近交易")
-            print("--------------------")
+            print(
+                "📚 最近交易"
+            )
 
-            # 最多显示最近5笔交易
-            for trade in self.history[-5:]:
+            print(
+                "--------------------"
+            )
+
+            for trade in self.history[
+                -5:
+            ]:
 
                 print(
                     "市场:",
@@ -908,6 +1156,10 @@ class Portfolio:
                     )
                 )
 
-                print("--------------------")
+                print(
+                    "--------------------"
+                )
 
-        print("====================")
+        print(
+            "===================="
+        )

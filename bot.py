@@ -5,6 +5,10 @@ from scanner import show_top_markets
 from portfolio import Portfolio
 from trade_engine import TradeEngine
 from risk_manager import calculate_position
+from database import (
+    save_market_snapshot,
+    save_account_snapshot
+)
 
 
 # ======================
@@ -431,13 +435,42 @@ def run_bot():
         if not question:
             continue
 
+        prices = parse_market_prices(
+            market
+        )
+
+        if prices:
+
+            try:
+
+                save_market_snapshot(
+                    market_id=market.get("id"),
+                    question=question,
+                    yes_price=prices["YES"],
+                    no_price=prices["NO"],
+                    volume=float(
+                        market.get(
+                            "volume",
+                            0
+                        )
+                    ),
+                    score=score,
+                    signal=signal
+                )
+
+            except Exception as error:
+
+                print(
+                    "⚠️ 市场快照保存失败:",
+                    error
+                )
+
         # 只处理买入信号
         if signal not in [
             "BUY_YES",
             "BUY_NO"
         ]:
             continue
-
         # 防止重复持仓
         if account.has_position(
             question
@@ -611,6 +644,12 @@ def run_bot():
 
     # 输出账户报告
     account.report()
+    save_account_snapshot(
+        balance=account.balance,
+        invested_capital=account.invested_capital(),
+        position_count=len(account.positions),
+        realized_profit=account.realized_profit()
+    )
 
 
 # ======================

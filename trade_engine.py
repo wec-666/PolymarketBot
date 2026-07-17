@@ -1,10 +1,14 @@
+from review_engine import ReviewEngine
+
+
 class TradeEngine:
 
     def __init__(
         self,
         account,
         take_profit=20,
-        stop_loss=-10
+        stop_loss=-10,
+        review_engine=None
     ):
 
         self.account = account
@@ -15,6 +19,11 @@ class TradeEngine:
 
         self.stop_loss = float(
             stop_loss
+        )
+
+        self.review_engine = (
+            review_engine
+            or ReviewEngine()
         )
 
     # ======================
@@ -147,13 +156,26 @@ class TradeEngine:
         }
 
     # ======================
+    # 保存账户状态
+    # ======================
+
+    def _save_account(self):
+
+        if hasattr(
+            self.account,
+            "save"
+        ):
+            self.account.save()
+
+    # ======================
     # 检查单个持仓
     # ======================
 
     def check_position(
         self,
         market,
-        current_price
+        current_price,
+        market_score=None
     ):
 
         result = self.account.position_profit(
@@ -211,59 +233,281 @@ class TradeEngine:
             "%"
         )
 
-        # 止盈
+        # ======================
+        # Phase 5.2B：AI止盈复审
+        # ======================
+
         if (
             profit_percent
             >=
             self.take_profit
         ):
 
+            position = self.account.get_position(
+                market
+            )
+
+            if position is None:
+
+                return {
+                    "success": False,
+                    "action": "NO_POSITION",
+                    "market": market
+                }
+
+            if hasattr(
+                position,
+                "request_take_profit_review"
+            ):
+                position.request_take_profit_review()
+
+            self._save_account()
+
             print(
-                "🎯达到止盈条件"
+                "🤖进入AI止盈复审"
             )
 
-            close_result = self.settle(
-                market=market,
-                close_price=current_price,
-                reason="TAKE_PROFIT"
+            # 优先使用外部传入评分，
+            # 其次读取持仓自身保存的评分。
+            if market_score is None:
+                market_score = position.get(
+                    "score"
+                )
+
+            # 缺少评分时不允许自动平仓，
+            # 防止旧持仓因 score=None 被当成0分。
+            if market_score is None:
+
+                if hasattr(
+                    position,
+                    "resume_monitoring"
+                ):
+                    position.resume_monitoring()
+
+                self._save_account()
+
+                print(
+                    "⚠️缺少市场评分，本轮暂不执行AI平仓"
+                )
+
+                print(
+                    "⏳恢复持仓监控"
+                )
+
+                return {
+                    "success": True,
+                    "action": "HOLD",
+                    "market": market,
+                    "reason": "MISSING_MARKET_SCORE",
+                    "profit": profit,
+                    "profit_percent": profit_percent,
+                    "current_price": current_price
+                }
+
+            # ReviewEngine 需要包含最新盈亏的数据。
+            review_position = dict(
+                position.to_dict()
+                if hasattr(position, "to_dict")
+                else position
             )
 
-            close_result[
-                "profit"
-            ] = profit
+            review_position.update(
+                {
+                    "profit": profit,
+                    "profit_percent": profit_percent,
+                    "current_price": current_price
+                }
+            )
 
-            close_result[
-                "profit_percent"
-            ] = profit_percent
+            decision = (
+                self.review_engine
+                .review_take_profit(
+                    position=review_position,
+                    market_score=market_score
+                )
+            )
 
-            return close_result
+            action = str(
+                decision.get(
+                    "action",
+                    "HOLD"
+                )
+            ).upper()
 
-        # 止损
+            reason = decision.get(
+                "reason",
+                "未提供原因"
+            )
+
+            confidence = decision.get(
+                "confidence",
+                0
+            )
+
+            print(
+                "AI决策:",
+                action
+            )
+
+            print(
+                "决策原因:",
+                reason
+            )
+
+            print(
+                "置信度:",
+                confidence
+            )
+
+            if action == "CLOSE":
+
+                close_result = self.settle(
+                    market=market,
+                    close_price=current_price,
+                    reason="AI_TAKE_PROFIT"
+                )
+
+                close_result[
+                    "profit"
+                ] = profit
+
+                close_result[
+                    "profit_percent"
+                ] = profit_percent
+
+                close_result[
+                    "review"
+                ] = decision
+
+                return close_result
+
+            if hasattr(
+                position,
+                "resume_monitoring"
+            ):
+                position.resume_monitoring()
+
+            self._save_account()
+
+            print(
+                "⏳AI决定继续持有"
+            )
+
+            return {
+                "success": True,
+                "action": "HOLD",
+                "market": market,
+                "direction": result["direction"],
+                "profit": profit,
+                "profit_percent": profit_percent,
+                "current_price": current_price,
+                "review": decision
+            }
+
+        # ======================
+        # Phase 5.3A：AI止损复审
+        # ======================
         if (
             profit_percent
             <=
             self.stop_loss
         ):
 
-            print(
-                "🛑达到止损条件"
+            position = self.account.get_position(
+                market
             )
 
-            close_result = self.settle(
-                market=market,
-                close_price=current_price,
-                reason="STOP_LOSS"
+            if position is None:
+                return {
+                    "success": False,
+                    "action": "NO_POSITION",
+                    "market": market
+                }
+
+            if hasattr(position,"request_stop_loss_review"):
+                position.request_stop_loss_review()
+
+            self._save_account()
+
+            print("🤖进入AI止损复审")
+
+            if market_score is None:
+                market_score = position.get("score")
+
+            if market_score is None:
+
+                if hasattr(position,"resume_monitoring"):
+                    position.resume_monitoring()
+
+                self._save_account()
+
+                print("⚠️缺少市场评分，本轮暂不执行AI止损")
+                print("⏳恢复持仓监控")
+
+                return {
+                    "success": True,
+                    "action": "HOLD",
+                    "market": market,
+                    "reason": "MISSING_MARKET_SCORE",
+                    "profit": profit,
+                    "profit_percent": profit_percent,
+                    "current_price": current_price
+                }
+
+            review_position = dict(
+                position.to_dict()
+                if hasattr(position,"to_dict")
+                else position
             )
 
-            close_result[
-                "profit"
-            ] = profit
+            review_position.update({
+                "profit": profit,
+                "profit_percent": profit_percent,
+                "current_price": current_price
+            })
 
-            close_result[
-                "profit_percent"
-            ] = profit_percent
+            decision = self.review_engine.review_stop_loss(
+                position=review_position,
+                market_score=market_score
+            )
 
-            return close_result
+            action = str(decision.get("action","HOLD")).upper()
+
+            print("AI决策:", action)
+            print("决策原因:", decision.get("reason",""))
+            print("置信度:", decision.get("confidence",0))
+
+            if action == "CLOSE":
+
+                close_result = self.settle(
+                    market=market,
+                    close_price=current_price,
+                    reason="AI_STOP_LOSS"
+                )
+
+                close_result["profit"] = profit
+                close_result["profit_percent"] = profit_percent
+                close_result["review"] = decision
+
+                return close_result
+
+            if hasattr(position,"resume_monitoring"):
+                position.resume_monitoring()
+
+            self._save_account()
+
+            print("⏳AI决定继续持有")
+
+            return {
+                "success": True,
+                "action": "HOLD",
+                "market": market,
+                "direction": result["direction"],
+                "profit": profit,
+                "profit_percent": profit_percent,
+                "current_price": current_price,
+                "review": decision
+            }
 
         print(
             "⏳继续持有"
@@ -285,10 +529,13 @@ class TradeEngine:
 
     def check_all_positions(
         self,
-        price_map
+        price_map,
+        score_map=None
     ):
 
         results = []
+
+        score_map = score_map or {}
 
         # 使用副本，避免平仓时修改原列表导致循环异常
         positions = list(
@@ -361,7 +608,10 @@ class TradeEngine:
 
             result = self.check_position(
                 market=market,
-                current_price=current_price
+                current_price=current_price,
+                market_score=score_map.get(
+                    market
+                )
             )
 
             results.append(

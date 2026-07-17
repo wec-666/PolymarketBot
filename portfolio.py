@@ -8,6 +8,16 @@ from database import (
     close_trade_record
 )
 
+from position import Position
+
+
+ACTIVE_POSITION_STATUSES = {
+    "OPEN",
+    "MONITORING",
+    "TAKE_PROFIT_REVIEW",
+    "STOP_LOSS_REVIEW",
+}
+
 
 class Portfolio:
 
@@ -38,14 +48,23 @@ class Portfolio:
                 2
             )
 
+            # 可用余额（保留 balance 兼容旧代码）
+            self.available_balance = self.balance
+
+            # 当前持仓投入资金
+            self.invested_balance = 0.0
+
+            # 账户净值（当前阶段按账面投入计算）
+            self.equity = self.balance
+
+            # 账户总资产
+            self.total_assets = self.balance
+
             self.positions = []
             self.history = []
 
+            self.refresh_account()
             self.save()
-            print(">>>> 正在写入SQLite...")
-            save_open_trade(
-         ...
-        )
 
     # ======================
     # 保存账户
@@ -53,10 +72,22 @@ class Portfolio:
 
     def save(self):
 
+        # 保存前统一刷新账户派生数据
+        self.refresh_account()
+
         data = {
             "initial_capital": self.initial_capital,
             "balance": self.balance,
-            "positions": self.positions,
+            "available_balance": self.available_balance,
+            "invested_balance": self.invested_balance,
+            "equity": self.equity,
+            "total_assets": self.total_assets,
+            "positions": [
+                position.to_dict()
+                if isinstance(position, Position)
+                else position
+                for position in self.positions
+            ],
             "history": self.history
         }
 
@@ -135,10 +166,73 @@ class Portfolio:
                 )
             )
 
-            self.positions = data.get(
+            # 兼容旧版 account.json：缺少新字段时自动计算
+            self.available_balance = float(
+                data.get(
+                    "available_balance",
+                    self.balance
+                )
+            )
+
+            self.invested_balance = float(
+                data.get(
+                    "invested_balance",
+                    0
+                )
+            )
+
+            self.equity = float(
+                data.get(
+                    "equity",
+                    self.available_balance
+                    +
+                    self.invested_balance
+                )
+            )
+
+            self.total_assets = float(
+                data.get(
+                    "total_assets",
+                    self.equity
+                )
+            )
+
+            raw_positions = data.get(
                 "positions",
                 []
             )
+
+            self.positions = []
+
+            if isinstance(raw_positions, list):
+
+                for item in raw_positions:
+
+                    try:
+
+                        if isinstance(item, Position):
+
+                            self.positions.append(
+                                item
+                            )
+
+                        elif isinstance(item, dict):
+
+                            self.positions.append(
+                                Position.from_dict(
+                                    item
+                                )
+                            )
+
+                    except (
+                        TypeError,
+                        ValueError
+                    ) as error:
+
+                        print(
+                            "⚠️跳过无效持仓数据:",
+                            error
+                        )
 
             self.history = data.get(
                 "history",
@@ -165,6 +259,9 @@ class Portfolio:
 
                 self.history = []
 
+            # 使用实际余额和持仓重新同步账户数据
+            self.refresh_account()
+
         except (
             json.JSONDecodeError,
             KeyError,
@@ -175,6 +272,126 @@ class Portfolio:
             raise RuntimeError(
                 f"account.json加载失败，请检查账户文件：{error}"
             ) from error
+
+    # ======================
+    # 刷新账户状态
+    # ======================
+
+    def refresh_account(
+        self,
+        current_prices=None
+    ):
+
+        """
+        统一刷新账户派生字段。
+
+        current_prices 可传入：
+        {"市场名称": 当前价格}
+
+        未传入当前价格时，净值按持仓成本计算；
+        传入后，净值按最新市场价格计算。
+        """
+
+        self.balance = round(
+            float(self.balance),
+            4
+        )
+
+        self.available_balance = self.balance
+
+        invested = 0.0
+        position_value = 0.0
+
+        for position in self.positions:
+
+            if position.get(
+                "status",
+                "OPEN"
+            ) not in ACTIVE_POSITION_STATUSES:
+
+                continue
+
+            amount = float(
+                position.get(
+                    "amount",
+                    0
+                )
+            )
+
+            shares = float(
+                position.get(
+                    "shares",
+                    0
+                )
+            )
+
+            entry_price = float(
+                position.get(
+                    "price",
+                    0
+                )
+            )
+
+            invested += amount
+
+            market = position.get(
+                "market"
+            )
+
+            current_price = entry_price
+
+            if isinstance(
+                current_prices,
+                dict
+            ):
+
+                candidate = current_prices.get(
+                    market
+                )
+
+                try:
+
+                    candidate = float(
+                        candidate
+                    )
+
+                    if 0 <= candidate <= 1:
+
+                        current_price = candidate
+
+                except (
+                    TypeError,
+                    ValueError
+                ):
+
+                    pass
+
+            position_value += (
+                shares
+                *
+                current_price
+            )
+
+        self.invested_balance = round(
+            invested,
+            4
+        )
+
+        self.equity = round(
+            self.available_balance
+            +
+            position_value,
+            4
+        )
+
+        self.total_assets = self.equity
+
+        return {
+            "available_balance": self.available_balance,
+            "invested_balance": self.invested_balance,
+            "equity": self.equity,
+            "total_assets": self.total_assets
+        }
 
     # ======================
     # 获取指定持仓
@@ -198,8 +415,8 @@ class Portfolio:
                     "status",
                     "OPEN"
                 )
-                ==
-                "OPEN"
+                in
+                ACTIVE_POSITION_STATUSES
             ):
 
                 return position
@@ -361,24 +578,29 @@ class Portfolio:
 
         open_time = time.time()
 
-        trade = {
-            "market": market,
-            "amount": round(
-                amount,
-                4
-            ),
-            "price": round(
-                price,
-                6
-            ),
-            "shares": round(
-                shares,
-                6
-            ),
-            "direction": direction,
-            "open_time": open_time,
-            "status": "OPEN"
-        }
+        try:
+
+            trade = Position(
+                market=market,
+                amount=amount,
+                price=price,
+                shares=shares,
+                direction=direction,
+                open_time=open_time,
+                status="OPEN"
+            )
+
+        except (
+            TypeError,
+            ValueError
+        ) as error:
+
+            print(
+                "❌创建持仓对象失败:",
+                error
+            )
+
+            return False
 
         self.balance = round(
             self.balance
@@ -391,6 +613,7 @@ class Portfolio:
             trade
         )
 
+        self.refresh_account()
         self.save()
 
         try:
@@ -481,6 +704,24 @@ class Portfolio:
         if position is None:
 
             return None
+
+        if isinstance(
+            position,
+            Position
+        ):
+
+            try:
+
+                return position.profit_details(
+                    current_price
+                )
+
+            except (
+                TypeError,
+                ValueError
+            ):
+
+                return None
 
         try:
 
@@ -688,51 +929,143 @@ class Portfolio:
 
             return False
 
-        value = (
-            target[
-                "shares"
-            ]
-            *
-            close_price
-        )
+        if isinstance(
+            target,
+            Position
+        ):
 
-        profit = (
-            value
-            -
-            target[
-                "amount"
-            ]
-        )
+            try:
 
-        if target[
-            "amount"
-        ] > 0:
+                closed_trade = target.close(
+                    close_price=close_price,
+                    reason=reason
+                )
 
-            profit_percent = (
-                profit
-                /
-                target[
-                    "amount"
-                ]
-                *
-                100
+            except (
+                TypeError,
+                ValueError,
+                RuntimeError
+            ) as error:
+
+                print(
+                    "❌平仓失败:",
+                    error
+                )
+
+                return False
+
+            value = float(
+                closed_trade.get(
+                    "close_value",
+                    0
+                )
+            )
+
+            profit = float(
+                closed_trade.get(
+                    "profit",
+                    0
+                )
+            )
+
+            profit_percent = float(
+                closed_trade.get(
+                    "profit_percent",
+                    0
+                )
             )
 
         else:
 
-            profit_percent = 0
+            value = (
+                target[
+                    "shares"
+                ]
+                *
+                close_price
+            )
 
-        if abs(
-            profit
-        ) < 0.005:
+            profit = (
+                value
+                -
+                target[
+                    "amount"
+                ]
+            )
 
-            profit = 0.0
+            if target[
+                "amount"
+            ] > 0:
 
-        if abs(
-            profit_percent
-        ) < 0.005:
+                profit_percent = (
+                    profit
+                    /
+                    target[
+                        "amount"
+                    ]
+                    *
+                    100
+                )
 
-            profit_percent = 0.0
+            else:
+
+                profit_percent = 0
+
+            if abs(
+                profit
+            ) < 0.005:
+
+                profit = 0.0
+
+            if abs(
+                profit_percent
+            ) < 0.005:
+
+                profit_percent = 0.0
+
+            closed_trade = deepcopy(
+                target
+            )
+
+            closed_trade[
+                "close_price"
+            ] = round(
+                close_price,
+                6
+            )
+
+            closed_trade[
+                "close_value"
+            ] = round(
+                value,
+                4
+            )
+
+            closed_trade[
+                "profit"
+            ] = round(
+                profit,
+                2
+            )
+
+            closed_trade[
+                "profit_percent"
+            ] = round(
+                profit_percent,
+                2
+            )
+
+            closed_trade[
+                "close_time"
+            ] = time.time()
+
+            closed_trade[
+                "close_reason"
+            ] = reason
+
+            closed_trade[
+                "status"
+            ] = "CLOSED"
 
         self.balance = round(
             self.balance
@@ -740,50 +1073,6 @@ class Portfolio:
             value,
             4
         )
-
-        closed_trade = deepcopy(
-            target
-        )
-
-        closed_trade[
-            "close_price"
-        ] = round(
-            close_price,
-            6
-        )
-
-        closed_trade[
-            "close_value"
-        ] = round(
-            value,
-            4
-        )
-
-        closed_trade[
-            "profit"
-        ] = round(
-            profit,
-            2
-        )
-
-        closed_trade[
-            "profit_percent"
-        ] = round(
-            profit_percent,
-            2
-        )
-
-        closed_trade[
-            "close_time"
-        ] = time.time()
-
-        closed_trade[
-            "close_reason"
-        ] = reason
-
-        closed_trade[
-            "status"
-        ] = "CLOSED"
 
         self.history.append(
             closed_trade
@@ -793,6 +1082,7 @@ class Portfolio:
             target
         )
 
+        self.refresh_account()
         self.save()
 
         try:
@@ -932,6 +1222,8 @@ class Portfolio:
 
     def report(self):
 
+        self.refresh_account()
+
         realized = self.realized_profit()
 
         total_trades = len(
@@ -996,14 +1288,33 @@ class Portfolio:
         print(
             "可用余额:",
             round(
-                self.balance,
+                self.available_balance,
                 2
             )
         )
 
         print(
             "持仓投入:",
-            self.invested_capital()
+            round(
+                self.invested_balance,
+                2
+            )
+        )
+
+        print(
+            "账户净值:",
+            round(
+                self.equity,
+                2
+            )
+        )
+
+        print(
+            "总资产:",
+            round(
+                self.total_assets,
+                2
+            )
         )
 
         print(

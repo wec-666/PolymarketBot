@@ -1,9 +1,4 @@
 import json
-import time
-run_count = 0
-error_count = 0
-api_fail_count = 0
-MAX_API_FAILURE = 3
 
 from api_client import get_markets
 from scanner import show_top_markets
@@ -12,13 +7,7 @@ from trade_engine import TradeEngine
 from risk_manager import calculate_position
 from database import (
     save_market_snapshot,
-    save_account_snapshot,
-    save_account_history
-)
-from logger import (
-    log_info,
-    log_trade,
-    log_error
+    save_account_snapshot
 )
 
 
@@ -294,24 +283,10 @@ def show_position_limit(
 
 def run_bot():
 
-    global run_count
-    global api_fail_count
-    global error_count
-
-    run_count += 1
-    trade_count = 0
-    start_time = time.time()
-    log_info(
-        f"开始第 {run_count} 轮扫描"
-    )
-
     print()
     print("======================")
     print("🤖 Polymarket AI Bot启动")
     print("======================")
-    log_info(
-    "Polymarket AI Bot 启动"
-    )
 
     # 加载模拟账户
     account = Portfolio(
@@ -324,33 +299,9 @@ def run_bot():
     take_profit=20
     )
 
- # 获取市场数据
+    # 获取市场数据
+    markets = get_markets()
 
-    try:
-
-        if api_fail_count >= MAX_API_FAILURE:
-
-            log_info(
-                "API异常，进入保护模式，暂停交易"
-            )
-
-            return
-
-
-        log_info(
-           "开始获取市场"
-        )
-
-        markets = get_markets()
-
-        api_fail_count = 0
-
-
-    except Exception:
-
-        api_fail_count += 1
-
-        raise
     if not markets:
 
         print(
@@ -363,9 +314,6 @@ def run_bot():
     print(
         "获取市场数量:",
         len(markets)
-    )
-    log_info(
-    f"获取市场数量: {len(markets)}"
     )
 
     # ======================
@@ -511,272 +459,244 @@ def run_bot():
 
     # 每次扫描最多开一笔新仓
     for item in results:
-        current_question = "UNKNOWN"
+
+        # 再次检查持仓上限
+        # 防止未来循环逻辑修改后超限
+        if (
+            len(account.positions)
+            >=
+            MAX_POSITIONS
+        ):
+
+            show_position_limit(
+                account
+            )
+
+            break
+
+        market = item.get(
+            "market"
+        )
+
+        score = item.get(
+            "score",
+            0
+        )
+
+        signal = item.get(
+            "signal",
+            "HOLD"
+        )
+
+        if not market:
+            continue
+
+        question = market.get(
+            "question"
+        )
+
+        if not question:
+            continue
+
+        prices = parse_market_prices(
+            market
+        )
+
+        if prices:
+
+            try:
+
+                save_market_snapshot(
+                    market_id=market.get("id"),
+                    question=question,
+                    yes_price=prices["YES"],
+                    no_price=prices["NO"],
+                    volume=float(
+                        market.get(
+                            "volume",
+                            0
+                        )
+                    ),
+                    score=score,
+                    signal=signal
+                )
+
+            except Exception as error:
+
+                print(
+                    "⚠️ 市场快照保存失败:",
+                    error
+                )
+
+        # 只处理买入信号
+        if signal not in [
+            "BUY_YES",
+            "BUY_NO"
+        ]:
+            continue
+        # 防止重复持仓
+        if account.has_position(
+            question
+        ):
+
+            print()
+            print(
+                "⚠️ 已有持仓，跳过:"
+            )
+
+            print(
+                question
+            )
+
+            continue
+
+        prices = parse_market_prices(
+            market
+        )
+
+        if prices is None:
+
+            print()
+            print(
+                "⚠️价格解析失败，跳过:"
+            )
+
+            print(
+                question
+            )
+
+            continue
+
+        if signal == "BUY_YES":
+
+            price = prices[
+                "YES"
+            ]
+
+            direction_text = "YES"
+
+        else:
+
+            price = prices[
+                "NO"
+            ]
+
+            direction_text = "NO"
 
         try:
 
-            # 再次检查持仓上限
-            # 防止未来循环逻辑修改后超限
-            if (
-                len(account.positions)
-                >=
-                MAX_POSITIONS
-            ):
-    
-                show_position_limit(
-                    account
+            volume = float(
+                market.get(
+                    "volume",
+                    0
                 )
-    
-                break
-    
-            market = item.get(
-                "market"
-            )
-    
-            score = item.get(
-                "score",
-                0
-            )
-    
-            signal = item.get(
-                "signal",
-                "HOLD"
-            )
-    
-            if not market:
-                continue
-    
-            question = market.get(
-                "question"
             )
 
-            current_question = question or "UNKNOWN"
-    
-            if not question:
-                continue
-    
-            prices = parse_market_prices(
-                market
-            )
-    
-            if prices:
-    
-                try:
-    
-                    save_market_snapshot(
-                        market_id=market.get("id"),
-                        question=question,
-                        yes_price=prices["YES"],
-                        no_price=prices["NO"],
-                        volume=float(
-                            market.get(
-                                "volume",
-                                0
-                            )
-                        ),
-                        score=score,
-                        signal=signal
-                    )
-    
-                except Exception as error:
-    
-                    print(
-                        "⚠️ 市场快照保存失败:",
-                        error
-                    )
-    
-            # 只处理买入信号
-            if signal not in [
-                "BUY_YES",
-                "BUY_NO"
-            ]:
-                continue
-            # 防止重复持仓
-            if account.has_position(
-                question
-            ):
-    
-                print()
-                print(
-                    "⚠️ 已有持仓，跳过:"
-                )
-    
-                print(
-                    question
-                )
-    
-                continue
-    
-            prices = parse_market_prices(
-                market
-            )
-    
-            if prices is None:
-    
-                print()
-                print(
-                    "⚠️价格解析失败，跳过:"
-                )
-    
-                print(
-                    question
-                )
-    
-                continue
-    
-            if signal == "BUY_YES":
-    
-                price = prices[
-                    "YES"
-                ]
-    
-                direction_text = "YES"
-    
-            else:
-    
-                price = prices[
-                    "NO"
-                ]
-    
-                direction_text = "NO"
-    
-            try:
-    
-                volume = float(
-                    market.get(
-                        "volume",
-                        0
-                    )
-                )
-    
-            except (
-                TypeError,
-                ValueError
-            ):
-    
-                volume = 0
-    
-            amount = calculate_position(
-                account.balance
-            )
-    
-            try:
-    
-                amount = float(
-                    amount
-                )
-    
-            except (
-                TypeError,
-                ValueError
-            ):
-    
-                print(
-                    "⚠️仓位金额格式错误"
-                )
-    
-                continue
-    
-            if amount <= 0:
-    
-                print(
-                    "⚠️计算出的投入金额无效"
-                )
-    
-                continue
-    
-            print()
-            print(
-                "发现交易机会:"
-            )
-    
-            print(
-                question
-            )
-    
-            print(
-                "信号:",
-                signal
-            )
-    
-            print(
-                "方向:",
-                direction_text
-            )
-    
-            print(
-                "价格:",
-                price
-            )
-    
-            print(
-                "评分:",
-                score
-            )
-    
-            print(
-                "交易量:",
-                volume
-            )
-    
-            print(
-                "投入:",
-                amount
-            )
-    
-            # 执行模拟交易
-            trade_result = engine.execute(
-                market=question,
-                signal=signal,
-                amount=amount,
-                price=price
-            )
-            trade_count += 1
-            log_trade(
-                f"交易执行 | 市场: {question} | 信号: {signal} | 金额: {amount} | 价格: {price}"
-            )
-    
-            if trade_result.get(
-                "success"
-            ):
-    
-                print()
-                print(
-                    "📵 Telegram通知目前已关闭"
-                )
-    
-                print(
-                    "当前持仓数量:",
-                    len(
-                        account.positions
-                    ),
-                    "/",
-                    MAX_POSITIONS
-                )
-    
-                opened_trade = True
-    
-                # 每轮只允许开一笔新仓
-                break
+        except (
+            TypeError,
+            ValueError
+        ):
 
-        except Exception as error:
+            volume = 0
 
-            error_count += 1
-            log_error(
-                f"模块: 市场交易检测 | 市场: {current_question} | 错误类型: {type(error).__name__} | 错误: {error}"
+        amount = calculate_position(
+            account.balance
         )
 
-            print()
-            print("======================")
-            print("⚠️ RECOVERY")
-            print("======================")
-            print("模块: 市场交易检测")
-            print("市场:", current_question)
-            print("错误类型:", type(error).__name__)
-            print("错误:", error)
-            print("机器人继续扫描下一个市场...")
+        try:
+
+            amount = float(
+                amount
+            )
+
+        except (
+            TypeError,
+            ValueError
+        ):
+
+            print(
+                "⚠️仓位金额格式错误"
+            )
 
             continue
+
+        if amount <= 0:
+
+            print(
+                "⚠️计算出的投入金额无效"
+            )
+
+            continue
+
+        print()
+        print(
+            "发现交易机会:"
+        )
+
+        print(
+            question
+        )
+
+        print(
+            "信号:",
+            signal
+        )
+
+        print(
+            "方向:",
+            direction_text
+        )
+
+        print(
+            "价格:",
+            price
+        )
+
+        print(
+            "评分:",
+            score
+        )
+
+        print(
+            "交易量:",
+            volume
+        )
+
+        print(
+            "投入:",
+            amount
+        )
+
+        # 执行模拟交易
+        trade_result = engine.execute(
+            market=question,
+            signal=signal,
+            amount=amount,
+            price=price
+        )
+
+        if trade_result.get(
+            "success"
+        ):
+
+            print()
+            print(
+                "📵 Telegram通知目前已关闭"
+            )
+
+            print(
+                "当前持仓数量:",
+                len(
+                    account.positions
+                ),
+                "/",
+                MAX_POSITIONS
+            )
+
+            opened_trade = True
+
+            # 每轮只允许开一笔新仓
+            break
 
     if not opened_trade:
 
@@ -793,56 +713,6 @@ def run_bot():
         position_count=len(account.positions),
         realized_profit=account.realized_profit()
     )
-    save_account_history(
-        balance=account.balance,
-        equity=account.total_assets,
-        invested=account.invested_capital(),
-        position_count=len(account.positions),
-        realized_profit=account.realized_profit()
-    )
-    elapsed = time.time() - start_time
-    if error_count == 0:
-
-        system_status = "正常"
-
-    else:
-
-        system_status = "警告"
-
-    log_info(
-        f"本轮运行耗时: {elapsed:.2f} 秒"
-)
-    log_info(
-        f"当前持仓数量: {len(account.positions)}"
-)
-    log_info(
-        f"本轮执行交易数量: {trade_count}"
-)
-    log_info(
-        f"系统状态: {system_status}"
-)
-
-
-    log_info(
-        f"异常次数: {error_count}"
-)   
-    if api_fail_count == 0:
-
-        api_status = "正常"
-
-    else:
-
-        api_status = "异常"
-
-
-    log_info(
-       f"API状态: {api_status}"
-)
-
-
-log_info(
-    f"API失败次数: {api_fail_count}"
-)
 
 
 # ======================

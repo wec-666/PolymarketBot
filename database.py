@@ -40,6 +40,40 @@ def create_tables():
         )
         """
     )
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS account_history (
+
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+        balance REAL,
+
+        equity REAL,
+
+        invested REAL,
+
+        position_count INTEGER,
+
+        realized_profit REAL,
+
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+
+        )
+        """
+    )
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS account_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            balance REAL,
+            equity REAL,
+            invested REAL,
+            position_count INTEGER,
+            realized_profit REAL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
 
     # ======================
     # 交易记录表
@@ -272,14 +306,14 @@ def save_account_snapshot(
     position_count,
     realized_profit
 ):
-
     connection = get_connection()
 
     cursor = connection.cursor()
 
     cursor.execute(
         """
-        INSERT INTO account_snapshots (
+        INSERT INTO account_snapshots
+        (
             balance,
             invested_capital,
             position_count,
@@ -296,11 +330,57 @@ def save_account_snapshot(
     )
 
     connection.commit()
+
     connection.close()
 
     print(
         "✅ 账户快照已保存到数据库"
     )
+
+
+
+def save_account_history(
+    balance,
+    equity,
+    invested,
+    position_count,
+    realized_profit
+):
+
+    connection = get_connection()
+
+    cursor = connection.cursor()
+
+
+    cursor.execute(
+        """
+        INSERT INTO account_history
+        (
+            balance,
+            equity,
+            invested,
+            position_count,
+            realized_profit
+        )
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (
+            balance,
+            equity,
+            invested,
+            position_count,
+            realized_profit
+        )
+    )
+
+
+    connection.commit()
+
+    connection.close()
+    print(
+    "✅ 账户历史已保存到数据库"
+)
+
 
 
 if __name__ == "__main__":

@@ -563,7 +563,7 @@ def run_bot():
     
                 try:
     
-                    save_market_snapshot(
+                    snapshot_id = save_market_snapshot(
                         market_id=market.get("id"),
                         question=question,
                         yes_price=prices["YES"],
@@ -729,7 +729,8 @@ def run_bot():
                 market=question,
                 signal=signal,
                 amount=amount,
-                price=price
+                price=price,
+                snapshot_id=snapshot_id
             )
             trade_count += 1
             log_trade(

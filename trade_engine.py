@@ -35,7 +35,8 @@ class TradeEngine:
         market,
         signal,
         amount,
-        price
+        price,
+        snapshot_id=None
     ):
 
         print()

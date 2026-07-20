@@ -115,7 +115,16 @@ def create_tables():
         )
         """
     )
+    try:
+        cursor.execute(
+            """
+            ALTER TABLE trades
+            ADD COLUMN snapshot_id INTEGER
+            """
+        )
 
+    except Exception:
+        pass
     connection.commit()
     connection.close()
 
@@ -134,7 +143,8 @@ def save_open_trade(
     amount,
     open_price,
     shares,
-    open_time
+    open_time,
+    snapshot_id=None
 ):
 
     connection = get_connection()
@@ -151,8 +161,9 @@ def save_open_trade(
             shares,
             open_time,
             status
+            snapshot_id
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             market,
@@ -161,7 +172,8 @@ def save_open_trade(
             open_price,
             shares,
             open_time,
-            "OPEN"
+            "OPEN",
+            snapshot_id
         )
     )
 
@@ -293,7 +305,34 @@ def save_market_snapshot(
     )
 
     connection.commit()
+
+    snapshot_id = cursor.lastrowid
+
     connection.close()
+
+    return snapshot_id
+def get_market_snapshot(snapshot_id):
+
+    connection = get_connection()
+
+    cursor = connection.cursor()
+
+    cursor.execute(
+        """
+        SELECT *
+        FROM market_snapshots
+        WHERE id = ?
+        """,
+        (
+            snapshot_id,
+        )
+    )
+
+    snapshot = cursor.fetchone()
+
+    connection.close()
+
+    return snapshot
 
 
 # ======================

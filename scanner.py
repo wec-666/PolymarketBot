@@ -1,5 +1,7 @@
 import json
 from trade_signal import generate_signal
+from news_engine import NewsEngine
+from database import save_market_snapshot
 
 
 
@@ -11,13 +13,10 @@ def calculate_score(probability, volume):
         probability = json.loads(probability)
 
 
-
     yes = float(probability[0]) * 100
 
 
-
     score = 50
-
 
 
     # 概率优势
@@ -30,7 +29,6 @@ def calculate_score(probability, volume):
     elif yes >=55 or yes <=45:
 
         score +=15
-
 
 
 
@@ -47,15 +45,12 @@ def calculate_score(probability, volume):
 
 
 
-
     if score >100:
 
         score=100
 
 
-
     return score
-
 
 
 
@@ -66,6 +61,8 @@ def scan_markets(markets):
 
     results=[]
 
+    news_engine = NewsEngine()
+
 
 
     for market in markets:
@@ -75,6 +72,9 @@ def scan_markets(markets):
         probability = market.get(
             "outcomePrices"
         )
+        if isinstance(probability, str):
+
+            probability = json.loads(probability)
 
 
         if not probability:
@@ -100,6 +100,50 @@ def scan_markets(markets):
             volume
 
         )
+        news_result = news_engine.analyze_news(
+
+            market.get(
+                "question",
+                ""
+
+            )
+
+)
+
+
+
+        news_impact = news_result.get(
+
+            "adjustment",
+
+            0
+
+)
+
+
+
+        score += news_impact
+
+
+
+        if score > 100:
+
+            score = 100
+
+
+        if score < 0:
+
+            score = 0
+
+
+        if score > 100:
+
+            score = 100
+
+
+        if score < 0:
+
+            score = 0
 
 
 
@@ -113,21 +157,48 @@ def scan_markets(markets):
 
         )
 
+    save_market_snapshot(
 
+        market.get(
+            "id"
+        ),
 
-        results.append(
+        market.get(
+            "question"
+        ),
+
+        float(
+            probability[0]
+        ),
+
+        float(
+            probability[1]
+        ),
+
+    volume,
+
+    score,
+
+    signal
+
+)
+    results.append(
 
             {
 
-                "market":market,
+                "market": market,
 
-                "score":score,
+                "score": score,
 
-                "signal":signal
+                "signal": signal,
+
+                "news": news_result,
+
+                "news_impact": news_impact
 
             }
 
-        )
+)
 
 
 

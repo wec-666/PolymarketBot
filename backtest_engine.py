@@ -1,4 +1,25 @@
 from backtest import simulate_trade, calculate_profit
+from database import get_connection
+def get_snapshot_history():
+
+    connection = get_connection()
+
+    cursor = connection.cursor()
+
+    cursor.execute(
+        """
+        SELECT *
+        FROM market_snapshots
+        ORDER BY id DESC
+        LIMIT 10
+        """
+    )
+
+    data = cursor.fetchall()
+
+    connection.close()
+
+    return data
 
 
 def run_backtest(markets):

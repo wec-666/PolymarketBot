@@ -36,6 +36,7 @@ def create_tables():
             volume REAL,
             score REAL,
             signal TEXT,
+            result TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
         """
@@ -58,19 +59,6 @@ def create_tables():
 
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 
-        )
-        """
-    )
-    cursor.execute(
-        """
-        CREATE TABLE IF NOT EXISTS account_history (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            balance REAL,
-            equity REAL,
-            invested REAL,
-            position_count INTEGER,
-            realized_profit REAL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
         """
     )
@@ -125,6 +113,18 @@ def create_tables():
 
     except Exception:
         pass
+    try:
+
+        cursor.execute(
+            """
+            ALTER TABLE market_snapshots
+            ADD COLUMN result TEXT
+            """
+        )
+
+    except Exception:
+
+        pass
     connection.commit()
     connection.close()
 
@@ -160,7 +160,7 @@ def save_open_trade(
             open_price,
             shares,
             open_time,
-            status
+            status,
             snapshot_id
         )
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -273,7 +273,8 @@ def save_market_snapshot(
     no_price,
     volume,
     score,
-    signal
+    signal,
+    result=None
 ):
 
     connection = get_connection()
@@ -289,9 +290,10 @@ def save_market_snapshot(
             no_price,
             volume,
             score,
-            signal
+            signal,
+            result
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             market_id,
@@ -300,7 +302,8 @@ def save_market_snapshot(
             no_price,
             volume,
             score,
-            signal
+            signal,
+            result
         )
     )
 

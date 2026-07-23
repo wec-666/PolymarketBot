@@ -424,7 +424,37 @@ def save_account_history(
 )
 
 
+def update_market_result(
+    market_id,
+    result
+):
 
+    connection = get_connection()
+
+    cursor = connection.cursor()
+
+
+    cursor.execute(
+        """
+        UPDATE market_snapshots
+        SET result = ?
+        WHERE market_id = ?
+        """,
+        (
+            result,
+            market_id
+        )
+    )
+
+
+    connection.commit()
+
+    connection.close()
+
+
+    print(
+        "✅ 市场结果已更新"
+    )
 if __name__ == "__main__":
 
     create_tables()

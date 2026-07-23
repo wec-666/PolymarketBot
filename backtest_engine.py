@@ -1,4 +1,5 @@
 from backtest import simulate_trade, calculate_profit
+from trade_signal import generate_signal
 from database import get_connection
 def get_snapshot_history():
 
@@ -10,8 +11,28 @@ def get_snapshot_history():
         """
         SELECT *
         FROM market_snapshots
+        WHERE id IN (
+
+            SELECT MAX(id)
+
+            FROM market_snapshots
+
+            WHERE result IS NOT NULL
+
+            GROUP BY market_id
+        )
+
+        OR market_id NOT IN (
+
+            SELECT market_id
+
+            FROM market_snapshots
+
+            WHERE result IS NOT NULL
+
+        )
         ORDER BY id DESC
-        LIMIT 10
+        LIMIT 500
         """
     )
 
@@ -22,15 +43,26 @@ def get_snapshot_history():
     return data
 
 
-def run_backtest(markets):
-
+def run_backtest():
+    history = get_snapshot_history()
+    result_count = 0
     initial_money = 100
 
     money = initial_money
 
-    total_trade = 0
+    signal_trade = 0
+
+    completed_trade = 0
+
     win = 0
+
     lose = 0
+    backtest_trades = []
+    total_market = 0
+
+    wait_count = 0
+
+    avoid_count = 0
 
 
     print("======================")
@@ -38,8 +70,13 @@ def run_backtest(markets):
     print("======================")
 
 
-    for market in markets:
-
+    for market in history:
+        market = dict(market)
+        total_market += 1
+        market["outcomePrices"] = [
+            str(market["yes_price"]),
+            str(market["no_price"])
+    ]
         probability = market.get("outcomePrices")
 
         volume = float(
@@ -55,47 +92,82 @@ def run_backtest(markets):
 
         # 模拟交易方向
 
-        position = simulate_trade(
+        signal = generate_signal(
             probability,
-            score,
-            volume
+            volume,
+            score
         )
 
-
-        if position == "WAIT":
-            continue
-
-
-        total_trade += 1
+        signal_trade += 1
 
 
         # 这里暂时模拟真实结果
         # 后面会接入历史结果数据
 
         result = market.get(
-            "result",
-            "NO"
+            "result"
         )
+
+        if result is not None:
+
+            result_count += 1
+
+        if result is None:
+
+            continue
+
+
+        if signal not in [
+            "BUY_YES",
+            "BUY_NO"
+        ]:
+            wait_count += 1
+
+            continue
+
+
+        completed_trade += 1
+
+
+        trade_record = {
+
+            "question": market["question"],
+
+            "signal": signal,
+
+            "yes_price": market["yes_price"],
+
+            "no_price": market["no_price"],
+
+            "result": result,
+
+        }
+
+
+        backtest_trades.append(
+            trade_record
+        )
+
+
+        amount = money * 0.1
 
 
         profit = calculate_profit(
-            position,
+            amount,
             result
         )
-
-
         money = money + (
-            money * profit / 100
-        )
+                money * profit / 100
+            )
 
 
         if profit > 0:
 
-            win += 1
+                win += 1
 
         else:
 
-            lose += 1
+                lose += 1
 
 
 
@@ -120,10 +192,15 @@ def run_backtest(markets):
 
 
     print(
-        "交易次数:",
-        total_trade
+        "产生信号:",
+        signal_trade
     )
 
+
+    print(
+        "完成交易:",
+        completed_trade
+    )
 
     print(
         "盈利次数:",
@@ -137,12 +214,11 @@ def run_backtest(markets):
     )
 
 
-    if total_trade > 0:
+    if completed_trade > 0:
 
         win_rate = (
-            win / total_trade
+            win / completed_trade
         ) * 100
-
         print(
             "胜率:",
             round(win_rate,2),
@@ -155,5 +231,33 @@ def run_backtest(markets):
             "没有触发交易"
         )
 
+    print(
+    "扫描市场:",
+    total_market
+)
+    print(
+    "有结果市场:",
+    result_count
+)
+    print()
 
+    print(
+        "🔥 回测交易明细"
+    )
+
+    print(
+        "------------------"
+    )
+
+
+    for trade in backtest_trades:
+
+        print(
+            trade
+    )
+
+    print(
+    "等待数量:",
+    wait_count
+)
     print("======================")
